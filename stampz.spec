@@ -11,9 +11,9 @@ try:
                 VERSION = line.split('=')[1].strip().strip('"').strip("'")
                 break
     else:
-        VERSION = '1.7.1'  # Fallback version
+        VERSION = '1.7.2'  # Fallback version
 except Exception:
-    VERSION = '1.7.1'  # Fallback version
+    VERSION = '1.7.2'  # Fallback version
 
 # Safely collect odfpy data files and imports
 try:
