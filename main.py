@@ -22,6 +22,7 @@ from utils.image_straightener import StraighteningTool
 from utils.ods_exporter import ODSExporter
 from gui.preferences_dialog import show_preferences_dialog
 from utils.path_utils import ensure_data_directories
+from utils.dependency_checker import DependencyChecker
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,10 @@ class StampZApp:
         self.control_panel.tool_mode.set("view")
         self._handle_tool_mode_change("view")
         self._apply_default_settings()
+        self.current_image_metadata = None
+        
+        # Check optional dependencies at startup
+        self._check_dependencies()
 
     def _set_application_name(self):
         try:
@@ -167,11 +172,13 @@ class StampZApp:
         self.root.bind('<minus>', lambda e: self._adjust_vertex_count(-1))
 
     def open_image(self, filename=None):
+        # Reorder file types to prioritize formats best for color analysis
         filetypes = [
-            ('Image files', '*.jpg *.jpeg *.tif *.png'),
-            ('TIFF files', '*.tif'),
-            ('JPEG files', '*.jpg *.jpeg'),
-            ('PNG files', '*.png')
+            ('Recommended for Color Analysis', '*.tif *.png'),
+            ('16-bit TIFF (Best)', '*.tif *.tiff'),
+            ('PNG (Lossless)', '*.png'),
+            ('All Image files', '*.tif *.tiff *.png *.jpg *.jpeg'),
+            ('JPEG (Not Recommended)', '*.jpg *.jpeg')
         ]
         
         # Use provided filename, otherwise ask user
@@ -194,15 +201,180 @@ class StampZApp:
 
         if filename:
             try:
-                image = load_image(filename)
+                image, metadata = load_image(filename)
                 self.canvas.load_image(image)
                 self.current_file = filename
+                self.current_image_metadata = metadata  # Store metadata for later use
                 self.control_panel.enable_controls(True)
                 base_filename = os.path.basename(filename)
                 self.root.title(f"StampZ - {base_filename}")
                 self.control_panel.update_current_filename(filename)
+                
+                # Show format information to user
+                self._show_format_info(filename, metadata)
+                
             except ImageLoadError as e:
                 messagebox.showerror("Error", str(e))
+    
+    def _show_format_info(self, filename, metadata):
+        """Show format information to the user based on loaded image metadata."""
+        try:
+            format_info = metadata.get('format_info', 'Unknown format')
+            precision_preserved = metadata.get('precision_preserved', False)
+            
+            # Only show informational dialogs for significant format situations
+            if precision_preserved:
+                # 16-bit TIFF loaded successfully - brief positive confirmation
+                print(f"✅ Loaded 16-bit TIFF with full precision: {os.path.basename(filename)}")
+            elif '16-bit support' in format_info:
+                # Could be 16-bit but tifffile not available - show warning
+                response = messagebox.askyesno(
+                    "16-bit TIFF Detected", 
+                    f"This appears to be a 16-bit TIFF file, but it's being loaded as 8-bit.\n\n"
+                    f"For maximum color accuracy, install the 'tifffile' library:\n"
+                    f"pip install tifffile\n\n"
+                    f"Would you like to continue with 8-bit loading?"
+                )
+                if not response:
+                    # User chose not to continue, could implement auto-install here
+                    pass
+            elif 'compressed' in format_info.lower() or 'jpeg' in format_info.lower():
+                # JPEG format - show brief warning about compression
+                if 'first_jpeg_warning' not in self.__dict__:
+                    messagebox.showinfo(
+                        "JPEG Format Notice", 
+                        f"JPEG format detected: {os.path.basename(filename)}\n\n"
+                        f"Note: JPEG uses lossy compression which may affect color analysis precision.\n"
+                        f"For best results, use TIFF or PNG formats.\n\n"
+                        f"This notice will only appear once per session."
+                    )
+                    self.first_jpeg_warning = True
+            
+            # Always log the format info for debugging
+            logger.info(f"Loaded {os.path.basename(filename)}: {format_info}")
+            
+        except Exception as e:
+            logger.warning(f"Error showing format info: {e}")
+    
+    def _check_dependencies(self):
+        """Check optional dependencies and show guidance if needed."""
+        try:
+            checker = DependencyChecker()
+            
+            # Only show dialog if important dependencies are missing
+            if checker.should_show_dependency_dialog():
+                self._show_dependency_dialog(checker)
+                
+        except Exception as e:
+            logger.warning(f"Error checking dependencies: {e}")
+    
+    def _show_dependency_dialog(self, checker: DependencyChecker):
+        """Show dependency status dialog to user."""
+        try:
+            from tkinter import Toplevel, Text, Scrollbar, Button, Frame, Label
+            
+            status = checker.get_dependency_status_summary()
+            
+            # Create dialog
+            dialog = Toplevel(self.root)
+            dialog.title("Optional Dependencies")
+            dialog.geometry("700x500")
+            dialog.resizable(True, True)
+            
+            # Center dialog
+            dialog.transient(self.root)
+            dialog.grab_set()
+            
+            # Position dialog
+            dialog.update_idletasks()
+            x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+            y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+            dialog.geometry(f"+{x}+{y}")
+            
+            # Title
+            title_label = Label(dialog, 
+                               text=f"Optional Dependencies ({status['available_count']}/{status['total_dependencies']} available)",
+                               font=("Arial", 14, "bold"))
+            title_label.pack(pady=10)
+            
+            # Main content frame
+            content_frame = Frame(dialog)
+            content_frame.pack(fill="both", expand=True, padx=20, pady=10)
+            
+            # Status text area
+            text_frame = Frame(content_frame)
+            text_frame.pack(fill="both", expand=True)
+            
+            text_area = Text(text_frame, wrap="word", font=("Courier", 10))
+            scrollbar = Scrollbar(text_frame, orient="vertical", command=text_area.yview)
+            text_area.configure(yscrollcommand=scrollbar.set)
+            
+            text_area.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+            
+            # Insert dependency report
+            report = checker.format_dependency_report()
+            text_area.insert("1.0", report)
+            text_area.configure(state="disabled")
+            
+            # Button frame
+            button_frame = Frame(dialog)
+            button_frame.pack(fill="x", padx=20, pady=10)
+            
+            def copy_install_commands():
+                """Copy installation commands to clipboard."""
+                try:
+                    commands = "\n".join([dep.installation_command for dep in checker.get_missing_dependencies()])
+                    dialog.clipboard_clear()
+                    dialog.clipboard_append(commands)
+                    messagebox.showinfo("Copied", "Installation commands copied to clipboard!")
+                except Exception as e:
+                    messagebox.showerror("Copy Error", f"Failed to copy commands: {e}")
+            
+            def save_install_script():
+                """Save installation script to file."""
+                try:
+                    from tkinter import filedialog
+                    
+                    script_path = filedialog.asksaveasfilename(
+                        title="Save Installation Script",
+                        defaultextension=".sh",
+                        filetypes=[
+                            ('Shell Script', '*.sh'),
+                            ('Text files', '*.txt'),
+                            ('All files', '*.*')
+                        ],
+                        initialfile="install_stampz_deps.sh"
+                    )
+                    
+                    if script_path:
+                        script_content = checker.get_installation_script()
+                        with open(script_path, 'w') as f:
+                            f.write(script_content)
+                        messagebox.showinfo("Script Saved", 
+                                           f"Installation script saved to:\n{script_path}\n\n"
+                                           f"Make it executable with:\nchmod +x {script_path}")
+                        
+                except Exception as e:
+                    messagebox.showerror("Save Error", f"Failed to save script: {e}")
+            
+            # Add buttons
+            if checker.get_missing_dependencies():
+                Button(button_frame, text="Copy Install Commands", 
+                      command=copy_install_commands).pack(side="left", padx=5)
+                Button(button_frame, text="Save Install Script", 
+                      command=save_install_script).pack(side="left", padx=5)
+            
+            Button(button_frame, text="Continue", 
+                  command=dialog.destroy).pack(side="right", padx=5)
+            
+            # Initial focus
+            text_area.focus_set()
+            
+        except Exception as e:
+            logger.error(f"Error showing dependency dialog: {e}")
+            # Fallback to console output
+            print(checker.format_dependency_report())
 
     def save_image(self):
         if not self.canvas.original_image:
@@ -217,30 +389,34 @@ class StampZApp:
             cropped = self.canvas.get_cropped_image()
             panel_options = self.control_panel.get_save_options()
             save_manager = SaveManager()
-            filetypes = []
+            
+            # Reorder file types to prioritize formats best for analysis data preservation
+            filetypes = [
+                ('Recommended for Analysis', '*.tif *.png'),
+                ('16-bit TIFF (Best Quality)', '*.tif *.tiff'),
+                ('PNG (Lossless)', '*.png'),
+                ('All Image files', '*.tif *.tiff *.png *.jpg *.jpeg'),
+                ('JPEG (Lossy - Not Recommended)', '*.jpg *.jpeg')
+            ]
+            
+            # Set default extension based on panel selection, but prioritize quality formats
             if panel_options.format == SaveFormat.JPEG:
-                filetypes = [
-                    ('JPEG files', '*.jpg *.jpeg'),
-                    ('TIFF files', '*.tif *.tiff'),
-                    ('PNG files', '*.png'),
-                    ('All Image files', '*.jpg *.jpeg *.tif *.tiff *.png')
-                ]
                 default_ext = '.jpg'
+                # Show warning about JPEG format choice
+                continue_save = messagebox.askyesno(
+                    "JPEG Format Warning",
+                    "⚠️  You've selected JPEG format, which uses lossy compression.\n\n"
+                    "This may reduce color analysis accuracy due to compression artifacts.\n\n"
+                    "For best results, consider using:\n"
+                    "• TIFF format (supports 16-bit, lossless)\n"
+                    "• PNG format (lossless compression)\n\n"
+                    "Do you want to continue with JPEG format?"
+                )
+                if not continue_save:
+                    return  # User chose to reconsider format
             elif panel_options.format == SaveFormat.PNG:
-                filetypes = [
-                    ('PNG files', '*.png'),
-                    ('TIFF files', '*.tif *.tiff'),
-                    ('JPEG files', '*.jpg *.jpeg'),
-                    ('All Image files', '*.jpg *.jpeg *.tif *.tiff *.png')
-                ]
                 default_ext = '.png'
-            else:  # TIFF
-                filetypes = [
-                    ('TIFF files', '*.tif *.tiff'),
-                    ('JPEG files', '*.jpg *.jpeg'),
-                    ('PNG files', '*.png'),
-                    ('All Image files', '*.jpg *.jpeg *.tif *.tiff *.png')
-                ]
+            else:  # TIFF (best choice)
                 default_ext = '.tif'
 
             filename_manager = FilenameManager()
@@ -273,6 +449,20 @@ class StampZApp:
                 ext = os.path.splitext(filepath)[1].lower()
                 if ext in ['.jpg', '.jpeg']:
                     selected_format = SaveFormat.JPEG
+                    # Additional warning if user selected JPEG via file extension instead of format option
+                    if panel_options.format != SaveFormat.JPEG:
+                        continue_jpeg = messagebox.askyesno(
+                            "JPEG Format Chosen by Extension",
+                            "⚠️  You've selected a JPEG filename extension (.jpg/.jpeg).\n\n"
+                            "JPEG uses lossy compression which can introduce artifacts that\n"
+                            "may affect color analysis accuracy.\n\n"
+                            "For precise color analysis, consider using:\n"
+                            "• .tif extension (16-bit support, lossless)\n"
+                            "• .png extension (lossless compression)\n\n"
+                            "Continue with JPEG format?"
+                        )
+                        if not continue_jpeg:
+                            return  # User decided to reconsider
                 elif ext in ['.tif', '.tiff']:
                     selected_format = SaveFormat.TIFF
                 elif ext == '.png':
