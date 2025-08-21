@@ -60,6 +60,7 @@ hiddenimports += [
     'odf.style',
     'odf.number',
     'openpyxl',
+    'tifffile',
 ]
 
 # Platform specific settings
