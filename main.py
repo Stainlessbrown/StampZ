@@ -269,7 +269,7 @@ class StampZApp:
         except Exception as e:
             logger.warning(f"Error checking dependencies: {e}")
     
-    def _show_dependency_dialog(self, checker: DependencyChecker):
+    def _show_dependency_dialog(self, checker):
         """Show dependency status dialog to user."""
         try:
             from tkinter import Toplevel, Text, Scrollbar, Button, Frame, Label
