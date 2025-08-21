@@ -82,18 +82,27 @@ class DependencyChecker:
         """Check availability of all optional dependencies."""
         for dep in self.dependencies:
             try:
+                # Use safer import that won't break in CI/CD environments
                 module = importlib.import_module(dep.import_name)
                 dep.is_available = True
                 
                 # Try to get version if available
-                if hasattr(module, '__version__'):
-                    dep.version = module.__version__
-                elif hasattr(module, 'version'):
-                    dep.version = module.version
-                elif hasattr(module, 'VERSION'):
-                    dep.version = str(module.VERSION)
+                try:
+                    if hasattr(module, '__version__'):
+                        dep.version = module.__version__
+                    elif hasattr(module, 'version'):
+                        dep.version = module.version
+                    elif hasattr(module, 'VERSION'):
+                        dep.version = str(module.VERSION)
+                except (AttributeError, TypeError):
+                    dep.version = "unknown"
                     
-            except ImportError:
+            except (ImportError, ModuleNotFoundError, OSError) as e:
+                # More comprehensive error handling for CI/CD environments
+                dep.is_available = False
+                dep.version = None
+            except Exception as e:
+                # Catch any other unexpected errors during import
                 dep.is_available = False
                 dep.version = None
     
