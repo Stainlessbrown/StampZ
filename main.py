@@ -22,7 +22,7 @@ from utils.image_straightener import StraighteningTool
 from utils.ods_exporter import ODSExporter
 from gui.preferences_dialog import show_preferences_dialog
 from utils.path_utils import ensure_data_directories
-from utils.dependency_checker import DependencyChecker
+# DependencyChecker imported at function level to avoid CI/CD issues
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,7 @@ class StampZApp:
     def _check_dependencies(self):
         """Check optional dependencies and show guidance if needed."""
         try:
+            from utils.dependency_checker import DependencyChecker
             checker = DependencyChecker()
             
             # Only show dialog if important dependencies are missing
