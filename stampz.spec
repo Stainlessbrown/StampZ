@@ -3,17 +3,8 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_all
 
-# Get version dynamically from __init__.py
-try:
-    with open('__init__.py', 'r') as f:
-        for line in f:
-            if line.startswith('__version__'):
-                VERSION = line.split('=')[1].strip().strip('"').strip("'")
-                break
-    else:
-        VERSION = '1.7.2'  # Fallback version
-except Exception:
-    VERSION = '1.7.2'  # Fallback version
+# Version for PyInstaller spec - keep this in sync with __init__.py
+VERSION = '1.7.2'
 
 # Safely collect odfpy data files and imports
 try:
