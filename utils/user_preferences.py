@@ -34,6 +34,12 @@ class FileDialogPreferences:
 class ColorLibraryPreferences:
     """Preferences for color library system."""
     default_library: str = "basic_colors"  # Default color library to use
+
+
+@dataclass
+class InterfacePreferences:
+    """Preferences for user interface behavior."""
+    interface_mode: str = "basic"  # Interface mode: "basic", "detailed", or "expert"
     
     
 @dataclass 
@@ -42,11 +48,13 @@ class UserPreferences:
     export_prefs: ExportPreferences
     file_dialog_prefs: FileDialogPreferences
     color_library_prefs: ColorLibraryPreferences
+    interface_prefs: InterfacePreferences
     
     def __init__(self):
         self.export_prefs = ExportPreferences()
         self.file_dialog_prefs = FileDialogPreferences()
         self.color_library_prefs = ColorLibraryPreferences()
+        self.interface_prefs = InterfacePreferences()
 
 
 class PreferencesManager:
@@ -354,7 +362,8 @@ class PreferencesManager:
             existing_data.update({
                 'export_prefs': asdict(self.preferences.export_prefs),
                 'file_dialog_prefs': asdict(self.preferences.file_dialog_prefs),
-                'color_library_prefs': asdict(self.preferences.color_library_prefs)
+                'color_library_prefs': asdict(self.preferences.color_library_prefs),
+                'interface_prefs': asdict(self.preferences.interface_prefs)
             })
             
             with open(self.prefs_file, 'w') as f:
