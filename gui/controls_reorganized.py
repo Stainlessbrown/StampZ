@@ -762,10 +762,11 @@ class ReorganizedControlPanel(ttk.Frame):
             if os.path.exists(file_path):
                 try:
                     # Load the image directly from Recent folder
-                    image = load_image(file_path)
+                    image, metadata = load_image(file_path)
                     dialog.destroy()
                     self.main_app.canvas.load_image(image)
                     self.main_app.current_file = file_path
+                    self.main_app.current_image_metadata = metadata  # Store metadata for later use
                     self.main_app.control_panel.enable_controls(True)
                     base_filename = os.path.basename(file_path)
                     self.main_app.root.title(f"StampZ - {base_filename}")
